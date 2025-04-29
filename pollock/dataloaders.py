@@ -146,12 +146,21 @@ class PollockDataset(Dataset):
         label = self.labels[idx] if self.labels is not None else 'unknown'
         y = self.cell_types.index(label) if label is not 'unknown' else 0
 
+      #  return {
+      #      'x': x,
+      #      'x_raw': x_raw,
+      #      'size_factor': sf,
+      #      'y': y,
+      #      'label': label
+      #  }
+      
+      # 🛠️ Convert to PyTorch tensors and ensure correct dtype
         return {
-            'x': x,
-            'x_raw': x_raw,
-            'size_factor': sf,
-            'y': y,
-            'label': label
+            'x': torch.tensor(x, dtype=torch.float32),
+            'x_raw': torch.tensor(x_raw, dtype=torch.float32),
+            'size_factor': torch.tensor(sf, dtype=torch.float32),
+            'y': torch.tensor(y, dtype=torch.long),  # For classification loss functions
+            'label': label  # Still keep string for reference if needed
         }
 
 def get_train_dataloaders(train, val, batch_size=64, label_col='cell_type'):
