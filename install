@@ -1,0 +1,4 @@
+micromamba create --prefix ./env
+micromamba activate ./env
+micromamba install -c pytorch -c conda-forge -y pytorch torchvision torchaudio cpuonly captum scanpy umap-learn ipykernel
+pip install .
