@@ -188,57 +188,240 @@ class PollockModel(torch.nn.Module):
 
 
 def fit_model(model, opt, scheduler, train_dl, val_dl, epochs=20):
+    """
+    Enhanced fit_model function with comprehensive accuracy metrics.
+    Replace this function in your model.py file.
+    """
     use_cuda = next(model.parameters()).is_cuda
     history = []
+    
+    # Get class names for detailed reporting
+    class_names = model.classes if hasattr(model, 'classes') else None
+    n_classes = len(class_names) if class_names else model.n_classes
+    
     for epoch in range(epochs):
-        train_loss, val_loss = 0., 0.
-        val_recon_loss, val_kl_loss, val_clf_loss = 0., 0., 0.
-        start = time.time()
+        start_time = time.time()
+        
+        # ================================
+        # TRAINING PHASE
+        # ================================
         model.train()
+        train_total_loss = 0.
+        train_recon_loss = 0.
+        train_kl_loss = 0.
+        train_clf_loss = 0.
+        train_batches = 0
+        
+        # For training accuracy calculation
+        train_predictions = []
+        train_true_labels = []
+        
         for i, b in enumerate(train_dl):
             x, x_raw, sf, y = b['x'], b['x_raw'], b['size_factor'], b['y']
             if use_cuda:
                 x, x_raw, sf, y = x.cuda(), x_raw.cuda(), sf.cuda(), y.cuda()
+            
             opt.zero_grad()
             out = model(x)
-            loss, recon_loss, kl_loss, clf_loss = model.calculate_loss(out, x_raw, sf, y)
-            loss.backward()
+            total_loss, recon_loss, kl_loss, clf_loss = model.calculate_loss(out, x_raw, sf, y)
+            total_loss.backward()
             opt.step()
-
-            train_loss += float(loss.detach().cpu())
+            
+            # Accumulate training losses
+            train_total_loss += float(total_loss.detach().cpu())
+            train_recon_loss += float(recon_loss.detach().cpu())
+            train_kl_loss += float(kl_loss.detach().cpu())
+            train_clf_loss += float(clf_loss.detach().cpu())
+            train_batches += 1
+            
+            # Collect predictions for accuracy calculation
+            _, predicted = torch.max(out['y'], 1)
+            train_predictions.extend(predicted.cpu().numpy())
+            train_true_labels.extend(y.cpu().numpy())
+            
             scheduler.step()
-        train_loss = train_loss / len(train_dl)
-
-        time_delta = time.time() - start
+        
+        # Calculate training metrics
+        train_total_loss /= train_batches
+        train_recon_loss /= train_batches
+        train_kl_loss /= train_batches
+        train_clf_loss /= train_batches
+        
+        # Calculate training accuracy metrics
+        train_accuracy = accuracy_score(train_true_labels, train_predictions) * 100
+        train_macro_f1 = f1_score(train_true_labels, train_predictions, average='macro') * 100
+        train_weighted_f1 = f1_score(train_true_labels, train_predictions, average='weighted') * 100
+        
+        # ================================
+        # VALIDATION PHASE
+        # ================================
         model.eval()
+        val_total_loss = 0.
+        val_recon_loss = 0.
+        val_kl_loss = 0.
+        val_clf_loss = 0.
+        val_batches = 0
+        
+        # For validation accuracy calculation
+        val_predictions = []
+        val_true_labels = []
+        
         with torch.no_grad():
             for i, b in enumerate(val_dl):
                 x, x_raw, sf, y = b['x'], b['x_raw'], b['size_factor'], b['y']
                 if use_cuda:
                     x, x_raw, sf, y = x.cuda(), x_raw.cuda(), sf.cuda(), y.cuda()
-
+                
                 out = model(x)
-                loss, recon_loss, kl_loss, clf_loss = model.calculate_loss(out, x_raw, sf, y)
-                val_loss += float(loss.detach().cpu())
+                total_loss, recon_loss, kl_loss, clf_loss = model.calculate_loss(out, x_raw, sf, y)
+                
+                val_total_loss += float(total_loss.detach().cpu())
                 val_recon_loss += float(recon_loss.detach().cpu())
                 val_kl_loss += float(kl_loss.detach().cpu())
                 val_clf_loss += float(clf_loss.detach().cpu())
-
-        val_loss, val_recon_loss, val_kl_loss, val_clf_loss = [
-            l / len(val_dl) for l in [val_loss, val_recon_loss, val_kl_loss, val_clf_loss]]
-
-        history.append({
+                val_batches += 1
+                
+                # Collect predictions for accuracy calculation
+                _, predicted = torch.max(out['y'], 1)
+                val_predictions.extend(predicted.cpu().numpy())
+                val_true_labels.extend(y.cpu().numpy())
+        
+        # Calculate validation metrics
+        val_total_loss /= val_batches
+        val_recon_loss /= val_batches
+        val_kl_loss /= val_batches
+        val_clf_loss /= val_batches
+        
+        # Calculate validation accuracy metrics
+        val_accuracy = accuracy_score(val_true_labels, val_predictions) * 100
+        val_macro_f1 = f1_score(val_true_labels, val_predictions, average='macro') * 100
+        val_weighted_f1 = f1_score(val_true_labels, val_predictions, average='weighted') * 100
+        
+        # Calculate per-class metrics for validation (optional detailed analysis)
+        try:
+            val_class_report = classification_report(val_true_labels, val_predictions, 
+                                                   target_names=class_names, 
+                                                   output_dict=True, zero_division=0)
+            # Extract per-class F1 scores
+            per_class_f1 = {}
+            if class_names:
+                for class_name in class_names:
+                    if class_name in val_class_report:
+                        per_class_f1[f'val_f1_{class_name}'] = val_class_report[class_name]['f1-score'] * 100
+        except:
+            val_class_report = None
+            per_class_f1 = {}
+        
+        epoch_time = time.time() - start_time
+        
+        # ================================
+        # STORE COMPREHENSIVE METRICS
+        # ================================
+        epoch_metrics = {
+            # Basic info
             'epoch': epoch,
-            'train loss': train_loss,
-            'val loss': val_loss,
+            'time': epoch_time,
+            
+            # Loss metrics (maintaining backward compatibility)
+            'train loss': train_total_loss,
+            'val loss': val_total_loss,
             'val reconstruction loss': val_recon_loss,
             'val_kl_loss': val_kl_loss,
             'val classification loss': val_clf_loss,
-            'time': time_delta
-        })
-        logging.info(f'epoch: {epoch}, train loss: {train_loss:.3f}, val loss: {val_loss:.3f}, \
-zinb loss: {val_recon_loss:.3f}, kl loss: {val_kl_loss:.3f}, \
-clf loss: {val_clf_loss:.3f}, time: {time_delta:.2f}')
-
+            
+            # Enhanced loss metrics
+            'train_total_loss': train_total_loss,
+            'train_reconstruction_loss': train_recon_loss,
+            'train_kl_loss': train_kl_loss,
+            'train_classification_loss': train_clf_loss,
+            'val_total_loss': val_total_loss,
+            'val_reconstruction_loss': val_recon_loss,
+            'val_classification_loss': val_clf_loss,
+            
+            # NEW: Accuracy metrics
+            'train_accuracy': train_accuracy,
+            'val_accuracy': val_accuracy,
+            'train_macro_f1': train_macro_f1,
+            'val_macro_f1': val_macro_f1,
+            'train_weighted_f1': train_weighted_f1,
+            'val_weighted_f1': val_weighted_f1,
+        }
+        
+        # Add per-class F1 scores if available
+        epoch_metrics.update(per_class_f1)
+        
+        history.append(epoch_metrics)
+        
+        # ================================
+        # ENHANCED LOGGING
+        # ================================
+        logging.info(f'Epoch {epoch+1}/{epochs} - '
+                    f'Train Loss: {train_total_loss:.3f}, Val Loss: {val_total_loss:.3f} | '
+                    f'Train Acc: {train_accuracy:.1f}%, Val Acc: {val_accuracy:.1f}% | '
+                    f'ZINB: {val_recon_loss:.3f}, KL: {val_kl_loss:.3f}, '
+                    f'Clf: {val_clf_loss:.3f} | Time: {epoch_time:.1f}s')
+        
+        # Log F1 scores every 5 epochs for detailed monitoring
+        if (epoch + 1) % 5 == 0:
+            logging.info(f'  └── F1 Scores - Train: {train_macro_f1:.1f}% (macro), '
+                        f'Val: {val_macro_f1:.1f}% (macro)')
+    
     return history
 
+
+def calculate_final_metrics(model, val_dl, class_names=None):
+    """
+    Calculate comprehensive final metrics after training.
+    Call this function after training completes.
+    """
+    model.eval()
+    all_predictions = []
+    all_true_labels = []
+    use_cuda = next(model.parameters()).is_cuda
+
+    with torch.no_grad():
+        for batch in val_dl:
+            x, _, _, y_true = batch['x'], batch['x_raw'], batch['size_factor'], batch['y']
+            if use_cuda:
+                x, y_true = x.cuda(), y_true.cuda()
+
+            outputs = model(x)
+            _, predicted = torch.max(outputs['y'], 1)
+
+            all_predictions.extend(predicted.cpu().numpy())
+            all_true_labels.extend(y_true.cpu().numpy())
+
+    # Calculate comprehensive metrics
+    accuracy = accuracy_score(all_true_labels, all_predictions) * 100
+    macro_f1 = f1_score(all_true_labels, all_predictions, average='macro') * 100
+    weighted_f1 = f1_score(all_true_labels, all_predictions, average='weighted') * 100
+
+    # Detailed classification report
+    class_report = classification_report(all_true_labels, all_predictions,
+                                       target_names=class_names,
+                                       output_dict=True, zero_division=0)
+
+    print("\n FINAL CLASSIFICATION METRICS")
+    print("=" * 50)
+    print(f"Overall Accuracy: {accuracy:.2f}%")
+    print(f"Macro F1-Score:   {macro_f1:.2f}%")
+    print(f"Weighted F1-Score: {weighted_f1:.2f}%")
+
+    if class_names:
+        print(f"\n PER-CLASS PERFORMANCE:")
+        for class_name in class_names:
+            if class_name in class_report:
+                metrics = class_report[class_name]
+                print(f"  {class_name:15}: "
+                     f"Precision={metrics['precision']*100:.1f}%, "
+                     f"Recall={metrics['recall']*100:.1f}%, "
+                     f"F1={metrics['f1-score']*100:.1f}%")
+
+    return {
+        'accuracy': accuracy,
+        'macro_f1': macro_f1,
+        'weighted_f1': weighted_f1,
+        'classification_report': class_report,
+        'predictions': all_predictions,
+        'true_labels': all_true_labels
+    }
