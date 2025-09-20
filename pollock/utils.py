@@ -265,7 +265,8 @@ def predict_adata(model, adata, make_umap=True, umap_fit_n=10000, batch_size=102
     return a
 
 
-def save_training_metrics_df(model_directory, output_path=None):
+
+def save_training_metrics_df(model_directory='.', output_path=None):
     """
     Simple function to extract and save training metrics as a pandas DataFrame.
     
@@ -273,6 +274,7 @@ def save_training_metrics_df(model_directory, output_path=None):
     -----------
     model_directory : str
         Path to the directory containing the saved model
+        Defaults to current working directory ('.') if not specified
     output_path : str, optional
         Path to save the CSV file. If None, saves as 'training_metrics.csv'
     
@@ -281,22 +283,13 @@ def save_training_metrics_df(model_directory, output_path=None):
     pd.DataFrame
         DataFrame containing the training metrics
     """
-  #  import json
-  #  import pandas as pd
-  #  import os
-    
-    # Load the model summary
     summary_path = os.path.join(model_directory, 'summary.json')
     with open(summary_path, 'r') as f:
         summary = json.load(f)
     
-    # Extract history and convert to DataFrame
     metrics_df = pd.DataFrame(summary['history'])
-    
-    # Make epoch 1-indexed for readability
     metrics_df['epoch'] = metrics_df['epoch'] + 1
     
-    # Save to CSV
     if output_path is None:
         output_path = 'training_metrics.csv'
     
@@ -306,12 +299,6 @@ def save_training_metrics_df(model_directory, output_path=None):
     print(f"📋 Columns: {list(metrics_df.columns)}")
     
     return metrics_df
-
-# Usage:
-metrics_df = save_training_metrics_df(module_save_filepath)
-
-# Or specify a custom output path:
-# metrics_df = save_training_metrics_df(module_save_filepath, "my_model_metrics.csv")
 
 
 def convert_rds(rds_fp):
