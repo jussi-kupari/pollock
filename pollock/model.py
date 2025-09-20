@@ -6,13 +6,13 @@ from collections import Counter
 import anndata
 import numpy as np
 import scanpy as sc
+from sklearn.metrics import accuracy_score, f1_score
 
 import torch
 import torch.nn.functional as F
 
 
 logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
-
 
 class ZINBLoss(torch.nn.Module):
     """
@@ -190,7 +190,6 @@ class PollockModel(torch.nn.Module):
 def fit_model(model, opt, scheduler, train_dl, val_dl, epochs=20):
     """
     Enhanced fit_model function with comprehensive accuracy metrics.
-    Replace this function in your model.py file.
     """
     use_cuda = next(model.parameters()).is_cuda
     history = []
